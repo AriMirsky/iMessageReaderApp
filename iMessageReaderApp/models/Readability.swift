@@ -229,6 +229,7 @@ final class ReadabilityViewModel: ObservableObject {
 
             let inc = recs
                 .filter { $0.direction == .incoming }
+                .filter { $0.words >= 50}
                 .map { rec in Entry(
                     person:    rec.person,
                     score:     rec.score,
@@ -241,6 +242,7 @@ final class ReadabilityViewModel: ObservableObject {
 
             let out = recs
                 .filter { $0.direction == .outgoing }
+                .filter { $0.words >= 50}
                 .map { rec in Entry(
                     person:    rec.person,
                     score:     rec.score,
@@ -253,6 +255,7 @@ final class ReadabilityViewModel: ObservableObject {
             
             let inc2 = recs
                 .filter { $0.direction == .incoming }
+                .filter { $0.words >= 50}
                 .map { rec in Entry(
                     person:    rec.person,
                     score:     rec.score,
@@ -265,6 +268,7 @@ final class ReadabilityViewModel: ObservableObject {
 
             let out2 = recs
                 .filter { $0.direction == .outgoing }
+                .filter { $0.words >= 50}
                 .map { rec in Entry(
                     person:    rec.person,
                     score:     rec.score,
