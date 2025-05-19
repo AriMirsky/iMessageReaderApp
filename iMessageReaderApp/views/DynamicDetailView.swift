@@ -16,17 +16,48 @@ struct DynamicDetailView: View {
         let type: String
     }
 
-    // Compute EMA for a raw series
+    /// Computes the Exponential Moving Average (EMA) for a raw series of daily values,
+    /// filling any missing days with a value of 0 for the same type.
     private func computeEMA(from rawSeries: [ChartData], alpha: Double = 0.1) -> [ChartData] {
         guard let first = rawSeries.first else { return [] }
-        var prev = first.value
-        var out: [ChartData] = [first]
-        for pt in rawSeries.dropFirst() {
-            let ema = alpha * pt.value + (1 - alpha) * prev
-            prev = ema
-            out.append(ChartData(day: pt.day, value: ema, type: pt.type))
+        let calendar = Calendar.current
+
+        // 1) Determine full date range
+        let startDate = calendar.startOfDay(for: first.day)
+        let endDate = calendar.startOfDay(for: rawSeries.last!.day)
+        var allDates: [Date] = []
+        var current = startDate
+        while current <= endDate {
+            allDates.append(current)
+            guard let next = calendar.date(byAdding: .day, value: 1, to: current) else { break }
+            current = next
         }
-        return out
+
+        // 2) Map existing values by day
+        let valuesByDate: [Date: Double] = Dictionary(
+            uniqueKeysWithValues: rawSeries.map { (calendar.startOfDay(for: $0.day), $0.value) }
+        )
+
+        // 3) Build zero-filled series with same type
+        let filledSeries: [ChartData] = allDates.map { date in
+            ChartData(
+                day: date,
+                value: valuesByDate[date] ?? 0.0,
+                type: first.type
+            )
+        }
+
+        // 4) Compute EMA on zero-padded series
+        var emaSeries: [ChartData] = []
+        var prevEMA = filledSeries.first!.value
+        for pt in filledSeries {
+            let ema = alpha * pt.value + (1 - alpha) * prevEMA
+            prevEMA = ema
+            emaSeries.append(
+                ChartData(day: pt.day, value: ema, type: pt.type)
+            )
+        }
+        return emaSeries
     }
 
     // Prepare combined EMA data

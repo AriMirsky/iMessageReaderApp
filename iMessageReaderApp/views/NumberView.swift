@@ -63,13 +63,39 @@ struct NumberView: View {
             .map { (person: $0.person, data: $0.data) }
     }
 
+    /// Computes the Exponential Moving Average (EMA) for a series of daily counts,
+    /// filling any missing days with a count of 0.
     private static func computeEMA(from series: [ChartData], alpha: Double) -> [ChartData] {
         guard let first = series.first else { return [] }
-        var prev = first.count
-        var out: [ChartData] = [first]
-        for pt in series.dropFirst() {
-            let ema = alpha * pt.count + (1 - alpha) * prev
-            prev = ema
+
+        // 1) Build a complete list of dates from first to last
+        let calendar = Calendar.current
+        let startDate = calendar.startOfDay(for: first.day)
+        let endDate = calendar.startOfDay(for: series.last!.day)
+        var allDates: [Date] = []
+        var current = startDate
+        while current <= endDate {
+            allDates.append(current)
+            guard let next = calendar.date(byAdding: .day, value: 1, to: current) else { break }
+            current = next
+        }
+
+        // 2) Map existing counts by day
+        let countsByDate: [Date: Double] = Dictionary(
+            uniqueKeysWithValues: series.map { (calendar.startOfDay(for: $0.day), $0.count) }
+        )
+
+        // 3) Create a zero-filled series for missing days
+        let filled: [ChartData] = allDates.map { date in
+            ChartData(person: first.person, day: date, count: countsByDate[date] ?? 0.0)
+        }
+
+        // 4) Compute EMA
+        var out: [ChartData] = []
+        var prevEMA = filled.first!.count
+        for pt in filled {
+            let ema = alpha * pt.count + (1 - alpha) * prevEMA
+            prevEMA = ema
             out.append(ChartData(person: pt.person, day: pt.day, count: ema))
         }
         return out
