@@ -89,112 +89,165 @@ struct NumberView: View {
     @State private var endTime: TimeInterval = 0
     @State private var yMax: Double = 0
 
-    var body: some View {
-        let vm = contactsVM
+    private struct SeriesModel {
+        let name: String
+        let color: Color
+        let data: [ChartData]
+    }
 
-        VStack(alignment: .leading) {
-            Color.clear
-              .onAppear {
-                startTime = dateRange.lowerBound
-                endTime   = dateRange.upperBound
-                yMax      = (messageType == .nincoming || messageType == .noutgoing)
-                              ? symmetricYMax
-                              : maxYValue
-              }
-              .onChange(of: messageType) { _ in
-                yMax = (messageType == .nincoming || messageType == .noutgoing)
-                  ? symmetricYMax
-                  : maxYValue
-              }
-
-            HStack {
-                Text("📈 Top 10 Texters Over Time")
-                    .font(.title2)
-                Spacer()
-                Picker("Direction", selection: $messageType) {
-                    ForEach(MessageType.allCases) { type in
-                        Text(type.rawValue).tag(type)
-                    }
+    private var chartSeries: [SeriesModel] {
+        // 1a) get the raw seriesList
+        let raw = seriesList
+        // 1b) extract display names
+        let names = raw.map { contactsVM.displayName(for: $0.person) }
+        // 1c) build a color map
+        let colorMap = Dictionary(
+            uniqueKeysWithValues:
+                names.enumerated().map { idx, name in
+                    let hue = Double(idx) / Double(names.count)
+                    return (name, Color(hue: hue, saturation: 0.8, brightness: 0.8))
                 }
-                .pickerStyle(MenuPickerStyle())
-            }
-            .padding(.bottom, 4)
-
-            // Display current date range
-            Text("Date Range: \(Date(timeIntervalSinceReferenceDate: startTime), style: .date) - \(Date(timeIntervalSinceReferenceDate: endTime), style: .date)")
-                .font(.subheadline)
-                .padding(.bottom, 8)
-
-            // Three sliders: start, end, Y max
-            HStack {
-                VStack {
-                    Text("X Start")
-                    Slider(value: $startTime, in: dateRange, step: 86400)
-                }
-                VStack {
-                    Text("X End")
-                    Slider(value: $endTime, in: dateRange, step: 86400)
-                }
-                VStack {
-                  Text("Y Max")
-                  Slider(
-                    value: $yMax,
-                    in: (messageType == .nincoming || messageType == .noutgoing)
-                      ? (0...symmetricYMax)
-                      : (0...maxYValue)
-                  )
-                }
-            }
-            .padding(.vertical)
-
-            // Chart with gridlines and clipped plot area
-            let displayName = { (handle: String) in
-                vm.displayName(for: handle)
-            }
-            let inWindow: (ChartData) -> Bool = { pt in
-                let t = pt.day.timeIntervalSinceReferenceDate
-                return t >= startTime && t <= endTime
-            }
-
-            Chart {
-                ForEach(seriesList, id: \.person) { series in
-                    // filter & map out of the view builder
-                    let filtered = series.data.filter(inWindow)
-                    ForEach(filtered) { pt in
-                        LineMark(
-                            x: .value("Day", pt.day),
-                            y: .value("EMA", pt.count)
-                        )
-                        .interpolationMethod(.monotone)
-                        .lineStyle(StrokeStyle(lineWidth: 2))
-                        .foregroundStyle(
-                            by: .value("Person", displayName(series.person))
-                        )
-                    }
-                }
-            }
-            .chartXAxis {
-                AxisMarks(values: .automatic(desiredCount: 7)) { _ in
-                    AxisGridLine(); AxisTick(); AxisValueLabel()
-                }
-            }
-            .chartYAxis {
-                AxisMarks(position: .leading) { _ in
-                    AxisGridLine(); AxisTick(); AxisValueLabel()
-                }
-            }
-            .chartXScale(domain: Date(timeIntervalSinceReferenceDate: startTime)...Date(timeIntervalSinceReferenceDate: endTime))
-            .chartYScale(domain:
-              (messageType == .nincoming || messageType == .noutgoing)
-                ? -yMax...yMax
-                : 0...yMax
+        )
+        // 1d) zip together into SeriesModel
+        return zip(raw, names).map { series, displayName in
+            SeriesModel(
+                name: displayName,
+                color: colorMap[displayName]!,
+                data: series.data
             )
-            .chartPlotStyle { plotArea in
-                plotArea
-                    .clipShape(Rectangle())
+        }
+    }
+    
+    private var chartColorMap: [String: Color] {
+        Dictionary(uniqueKeysWithValues:
+                    chartSeries.map { ($0.name, $0.color) }
+        )
+    }
+    
+    var autorefresh: some View {
+        Color.clear
+          .onAppear {
+            startTime = dateRange.lowerBound
+            endTime   = dateRange.upperBound
+            yMax      = (messageType == .nincoming || messageType == .noutgoing)
+                          ? symmetricYMax
+                          : maxYValue
+          }
+          .onChange(of: messageType) { _ in
+            yMax = (messageType == .nincoming || messageType == .noutgoing)
+              ? symmetricYMax
+              : maxYValue
+          }
+    }
+    
+    var header : some View {
+        HStack {
+            Text("📈 Top 10 Texters Over Time")
+                .font(.title2)
+            Spacer()
+            Picker("Direction", selection: $messageType) {
+                ForEach(MessageType.allCases) { type in
+                    Text(type.rawValue).tag(type)
+                }
             }
-            .frame(minHeight: 300)
-            .padding()
+            .pickerStyle(MenuPickerStyle())
+        }
+        .padding(.bottom, 4)
+    }
+    var currentDateRange : some View {
+        // Display current date range
+        Text("Date Range: \(Date(timeIntervalSinceReferenceDate: startTime), style: .date) - \(Date(timeIntervalSinceReferenceDate: endTime), style: .date)")
+            .font(.subheadline)
+            .padding(.bottom, 8)
+    }
+    
+    var sliders : some View {
+        // Three sliders: start, end, Y max
+        HStack {
+            VStack {
+                Text("X Start")
+                Slider(value: $startTime, in: dateRange, step: 86400)
+            }
+            VStack {
+                Text("X End")
+                Slider(value: $endTime, in: dateRange, step: 86400)
+            }
+            VStack {
+              Text("Y Max")
+              Slider(
+                value: $yMax,
+                in: (messageType == .nincoming || messageType == .noutgoing)
+                  ? (0...symmetricYMax)
+                  : (0...maxYValue)
+              )
+            }
+        }
+        .padding(.vertical)
+    }
+    
+    var mainChart : some View {
+        let vm = contactsVM
+        // Chart with gridlines and clipped plot area
+        let displayName = { (handle: String) in
+            vm.displayName(for: handle)
+        }
+        let inWindow: (ChartData) -> Bool = { pt in
+            let t = pt.day.timeIntervalSinceReferenceDate
+            return t >= startTime && t <= endTime
+        }
+
+        return Chart {
+            ForEach(seriesList, id: \.person) { series in
+                // filter & map out of the view builder
+                let filtered = series.data.filter(inWindow)
+                ForEach(filtered) { pt in
+                    LineMark(
+                        x: .value("Day", pt.day),
+                        y: .value("EMA", pt.count)
+                    )
+                    .interpolationMethod(.monotone)
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+                    .foregroundStyle(
+                        by: .value("Person", displayName(series.person))
+                    )
+                }
+            }
+        }
+        .chartForegroundStyleScale(
+          domain: Array(chartColorMap.keys),
+          range: Array(chartColorMap.values)
+        )
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 7)) { _ in
+                AxisGridLine(); AxisTick(); AxisValueLabel()
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading) { _ in
+                AxisGridLine(); AxisTick(); AxisValueLabel()
+            }
+        }
+        .chartXScale(domain: Date(timeIntervalSinceReferenceDate: startTime)...Date(timeIntervalSinceReferenceDate: endTime))
+        .chartYScale(domain:
+          (messageType == .nincoming || messageType == .noutgoing)
+            ? -yMax...yMax
+            : 0...yMax
+        )
+        .chartPlotStyle { plotArea in
+            plotArea
+                .clipShape(Rectangle())
+        }
+        .frame(minHeight: 300)
+        .padding()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            autorefresh
+            header
+            currentDateRange
+            sliders
+            mainChart
         }
         .padding()
     }
