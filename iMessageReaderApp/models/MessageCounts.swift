@@ -43,14 +43,39 @@ func loadMessageCounts() throws
     // 3. Our GROUP-BY query
     let query = """
     SELECT 
-      handle.id AS person,
-      DATE((message.date/1000000000) +
-           strftime('%s','2001-01-01'), 'unixepoch') AS day,
-      message.is_from_me AS direction,
+      person,
+      day,
+      direction,
       COUNT(*) AS count
-    FROM message
-    LEFT JOIN handle ON handle.ROWID = message.handle_id
-    GROUP BY person, day, message.is_from_me;
+    FROM (
+        -- Subquery 1: Outgoing messages (is_from_me = 1), count per recipient in chats
+        SELECT 
+          h.id AS person,
+          DATE((m.date/1000000000) + strftime('%s','2001-01-01'), 'unixepoch') AS day,
+          1 AS direction        -- message.is_from_me = 1 for outgoing
+        FROM message AS m
+        JOIN chat_message_join AS cmj 
+          ON cmj.message_id = m.ROWID
+        JOIN chat_handle_join AS chj 
+          ON chj.chat_id = cmj.chat_id
+        JOIN handle AS h 
+          ON h.ROWID = chj.handle_id
+        WHERE m.is_from_me = 1
+          -- Exclude the sender's own handle if present (typically the sender isn't in chat_handle_join)
+        
+        UNION ALL
+        
+        -- Subquery 2: Incoming messages (is_from_me = 0), count per sender
+        SELECT 
+          h.id AS person,
+          DATE((m.date/1000000000) + strftime('%s','2001-01-01'), 'unixepoch') AS day,
+          0 AS direction        -- message.is_from_me = 0 for incoming
+        FROM message AS m
+        JOIN handle AS h 
+          ON h.ROWID = m.handle_id
+        WHERE m.is_from_me = 0
+    ) AS combined
+    GROUP BY person, day, direction;
     """
 
     // 4. Execute and build models

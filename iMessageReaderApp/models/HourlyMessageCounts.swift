@@ -38,18 +38,55 @@ func loadMessageCountsByHour() throws
     // 4. Our GROUP-BY query, truncating message.date to hour-of-day (00–23)
     let query = """
     SELECT
-      handle.id AS person,
-      CAST(strftime(
-        '%H',
-        (message.date/1000000000) + strftime('%s','2001-01-01'),
-        'unixepoch',
-        'localtime'
-      ) AS INTEGER) AS hour,
-      message.is_from_me AS direction,
+      person,
+      hour,
+      direction,
       COUNT(*) AS count
-    FROM message
-    LEFT JOIN handle ON handle.ROWID = message.handle_id
-    GROUP BY person, hour, message.is_from_me;
+    FROM (
+      -- 1) Outgoing messages → one row per recipient in the chat
+      SELECT
+        h.id AS person,
+        CAST(
+          strftime(
+            '%H',
+            (m.date/1000000000) + strftime('%s','2001-01-01'),
+            'unixepoch',
+            'localtime'
+          ) AS INTEGER
+        ) AS hour,
+        1 AS direction   -- outgoing
+      FROM message AS m
+      JOIN chat_message_join AS cmj
+        ON cmj.message_id = m.ROWID
+      JOIN chat_handle_join AS chj
+        ON chj.chat_id = cmj.chat_id
+      JOIN handle AS h
+        ON h.ROWID = chj.handle_id
+      WHERE m.is_from_me = 1
+
+      UNION ALL
+
+      -- 2) Incoming messages → one row per sender
+      SELECT
+        h.id AS person,
+        CAST(
+          strftime(
+            '%H',
+            (m.date/1000000000) + strftime('%s','2001-01-01'),
+            'unixepoch',
+            'localtime'
+          ) AS INTEGER
+        ) AS hour,
+        0 AS direction   -- incoming
+      FROM message AS m
+      JOIN handle AS h
+        ON h.ROWID = m.handle_id
+      WHERE m.is_from_me = 0
+    ) AS combined
+    GROUP BY
+      person,
+      hour,
+      direction;
     """
 
     // 5. Execute and build models

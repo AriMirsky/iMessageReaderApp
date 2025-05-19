@@ -46,16 +46,53 @@ func loadReadabilityRecords() throws -> [ReadabilityRecord] {
 
     // Fetch plain‐text and archived bodies
     let sql = """
-    SELECT handle.id             AS person,
-           message.is_from_me    AS isFromMe,
-           message.text          AS txt,
-           message.attributedBody AS attr,
-           message.cache_has_attachments AS hasAttachments
-      FROM message
-    LEFT JOIN handle ON handle.ROWID = message.handle_id
-     WHERE txt IS NOT NULL
-        OR attr IS NOT NULL
-        OR cache_has_attachments = 1;
+    SELECT
+      person,
+      isFromMe,
+      txt,
+      attr,
+      hasAttachments
+    FROM (
+      -- 1) Outgoing messages → one row per recipient in the chat
+      SELECT
+        h.id                           AS person,
+        1                              AS isFromMe,           -- outgoing
+        m.text                         AS txt,
+        m.attributedBody               AS attr,
+        m.cache_has_attachments        AS hasAttachments
+      FROM message AS m
+      JOIN chat_message_join AS cmj
+        ON cmj.message_id = m.ROWID
+      JOIN chat_handle_join AS chj
+        ON chj.chat_id = cmj.chat_id
+      JOIN handle AS h
+        ON h.ROWID = chj.handle_id
+      WHERE m.is_from_me = 1
+        AND (
+          m.text IS NOT NULL
+          OR m.attributedBody IS NOT NULL
+          OR m.cache_has_attachments = 1
+        )
+
+      UNION ALL
+
+      -- 2) Incoming messages → one row per sender
+      SELECT
+        h.id                           AS person,
+        0                              AS isFromMe,           -- incoming
+        m.text                         AS txt,
+        m.attributedBody               AS attr,
+        m.cache_has_attachments        AS hasAttachments
+      FROM message AS m
+      JOIN handle AS h
+        ON h.ROWID = m.handle_id
+      WHERE m.is_from_me = 0
+        AND (
+          m.text IS NOT NULL
+          OR m.attributedBody IS NOT NULL
+          OR m.cache_has_attachments = 1
+        )
+    ) AS combined;
     """
 
     // Accumulate word/syllable/sentence counts per person & direction
